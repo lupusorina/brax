@@ -2,11 +2,10 @@
 
 import functools
 import time
-from typing import Any, Callable, Optional, Tuple, Sequence
+from typing import Any, Callable, Mapping, Optional, Tuple, Union
 
 from absl import logging
 from brax import envs
-# from brax.v1.envs import wrappers
 from brax.io import model
 from brax.training import acting
 from brax.training import gradients
@@ -20,6 +19,8 @@ from brax.training.agents.ddpg import networks as ddpg_networks
 from brax.training.types import Params
 from brax.training.types import PRNGKey, Transition
 import flax
+from brax.v1 import envs as envs_v1
+
 import jax
 import jax.numpy as jnp
 import optax
@@ -98,6 +99,8 @@ def train(environment: envs.Env,
           max_replay_size: Optional[int] = 10_0000,
           grad_updates_per_step: int = 1,
           deterministic_eval: bool = False,
+          wrap_env: bool = True,
+          wrap_env_fn: Optional[Callable[[Any], Any]] = None,
           tensorboard_flag = True,
           logdir = './logs',
           network_factory: types.NetworkFactory[ddpg_networks.DDPGNetworks] = ddpg_networks.make_ddpg_networks,
@@ -109,7 +112,8 @@ def train(environment: envs.Env,
     file_writer.set_as_default()
 
   process_id = jax.process_index()
-  local_devices_to_use = jax.local_device_count()
+  local_device_count = jax.local_device_count()
+  local_devices_to_use = local_device_count
   if max_devices_per_host is not None:
     local_devices_to_use = min(local_devices_to_use, max_devices_per_host)
   device_count = local_devices_to_use * jax.process_count()
@@ -136,17 +140,36 @@ def train(environment: envs.Env,
   num_training_steps_per_epoch = -(-(num_timesteps - num_prefill_env_steps) // 
         (num_evals_after_init * env_steps_per_actor_step))
 
-  assert num_envs % device_count == 0
-  wrap_for_training = envs.training.wrap
-  env = environment
+  key = jax.random.PRNGKey(seed)
+  global_key, local_key = jax.random.split(key)
+  del key
+  local_key = jax.random.fold_in(local_key, process_id)
+  local_key, key_env, eval_key = jax.random.split(local_key, 3)
+  # key_networks should be global, so that networks are initialized the same
+  # way for different processes.
+  key_policy, key_value = jax.random.split(global_key)
+  del global_key
 
-  env = wrap_for_training(
-      env,
-      episode_length=episode_length,
-      action_repeat=action_repeat,
-    #   randomization_fn=v_randomization_fn, # TODO: implement this.
-  )  # pytype: disable=wrong-keyword-args
-  
+  assert num_envs % device_count == 0
+  env = _maybe_wrap_env(
+      environment,
+      wrap_env,
+      num_envs,
+      episode_length,
+      action_repeat,
+      local_device_count,
+      key_env,
+      wrap_env_fn,
+    #   randomization_fn,
+  )
+
+  local_key, rb_key, env_key, eval_key = jax.random.split(local_key, 4)
+
+  # Env init
+  env_keys = jax.random.split(env_key, num_envs // jax.process_count())
+  env_keys = jnp.reshape(env_keys, (local_devices_to_use, -1) + env_keys.shape[1:])
+  env_state = jax.pmap(env.reset)(env_keys)
+
   obs_size = env.observation_size
   action_size = env.action_size
 
@@ -349,13 +372,6 @@ def train(environment: envs.Env,
       q_optimizer=q_optimizer)
   del global_key
 
-  local_key, rb_key, env_key, eval_key = jax.random.split(local_key, 4)
-
-  # Env init
-  env_keys = jax.random.split(env_key, num_envs // jax.process_count())
-  env_keys = jnp.reshape(env_keys, (local_devices_to_use, -1) + env_keys.shape[1:])
-  env_state = jax.pmap(env.reset)(env_keys)
-
   # Replay buffer init
   buffer_state = jax.pmap(replay_buffer.init)(jax.random.split(rb_key, local_devices_to_use))
 
@@ -430,3 +446,43 @@ def train(environment: envs.Env,
   logging.info('total steps: %s', total_steps)
   pmap.synchronize_hosts()
   return (make_policy, params, metrics)
+
+def _maybe_wrap_env(
+    env: Union[envs_v1.Env, envs.Env],
+    wrap_env: bool,
+    num_envs: int,
+    episode_length: Optional[int],
+    action_repeat: int,
+    local_device_count: int,
+    key_env: PRNGKey,
+    wrap_env_fn: Optional[Callable[[Any], Any]] = None,
+    # randomization_fn: Optional[
+    #     Callable[[base.System, jnp.ndarray], Tuple[base.System, base.System]]
+    # ] = None,
+):
+  """Wraps the environment for training/eval if wrap_env is True."""
+  if not wrap_env:
+    return env
+  if episode_length is None:
+    raise ValueError('episode_length must be specified in ppo.train')
+  v_randomization_fn = None
+#   if randomization_fn is not None:
+#     randomization_batch_size = num_envs // local_device_count
+#     # all devices gets the same randomization rng
+#     randomization_rng = jax.random.split(key_env, randomization_batch_size)
+#     v_randomization_fn = functools.partial(
+#         randomization_fn, rng=randomization_rng
+#     )
+  if wrap_env_fn is not None:
+    wrap_for_training = wrap_env_fn
+  elif isinstance(env, envs.Env):
+    wrap_for_training = envs.training.wrap
+  else:
+    wrap_for_training = envs_v1.wrappers.wrap_for_training
+  env = wrap_for_training(
+      env,
+      episode_length=episode_length,
+      action_repeat=action_repeat,
+      randomization_fn=v_randomization_fn,
+  )  # pytype: disable=wrong-keyword-args
+  return env
