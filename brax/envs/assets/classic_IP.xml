@@ -1,34 +1,81 @@
-<mujoco model="inverted_pendulum">
-  <compiler inertiafromgeom="true" />
-  <!-- Timestep = 0.01, gravity acts along negative y: -->
-  <option gravity="0 -9.81 0" timestep="0.05"/>
+<mujoco model="classic_IP">
+  <!-- Use degrees for Euler angles -->
+  <compiler angle="radian"/>
 
+  <!-- Gravity in -z; 20 ms timestep -->
+  <option gravity="0 0 -9.81" timestep="0.05" />
+
+  <!-- Disable damping on all joints (free swing) -->
   <default>
-    <!--
-      'limited="true"' so that we can put a range on the hinge,
-      'ctrllimited="true"' so the motor can have a ctrlrange
-    -->
-    <joint limited="true" damping="0"/>
-    <geom contype="0" friction="0.1 0.1 0.1" rgba="0.4 0.6 0.6 1"/>
-    <motor ctrllimited="true" ctrlrange="-2 2"/>
+    <joint damping="0" />
   </default>
 
-  <worldbody>
-    <!-- A single body pivoting at the origin: -->
-    <body name="pendulum" pos="0 0 0">
-      <!-- 
-        Hinge about the z-axis. The angle 'theta' spans [-8, +8].
-        That is a bit extreme, but follows your request.
-      -->
-      <joint name="hinge" type="hinge" axis="0 0 1" range="-8 8" pos="0 0 0"/>
+  <!-- Define textures/materials -->
+  <asset>
+    <!-- Checkerboard texture: black (rgb1="0 0 0") and white (rgb2="1 1 1") -->
+    <texture name="checkered_tex" type="2d" builtin="checker"
+             width="300" height="300" mark="edge"
+             rgb1="0 0 0" rgb2="1 1 1" markrgb="0.8 0.8 0.8"/>
+    <material name="ground_mat" texture="checkered_tex" texrepeat="10 10" texuniform="true"/>
 
-      <!-- A rod of length 1 from (0,0,0) to (1,0,0). -->
-      <geom name="rod" fromto="0 0 0 1 0 0" size="0.02" type="capsule"/>
+    <!-- Sphere (light gray) and rod (red) materials -->
+    <material name="sphere_mat" rgba="0.8 0.8 0.8 1"/>
+    <material name="rod_mat"    rgba="1 0 0 1"/>
+    <!-- Arrows colors for world coordinates -->
+    <material name="x_axis_mat"  rgba="0 0 1 1"/>
+    <material name="y_axis_mat"  rgba="1 0 0 1"/>
+    <material name="z_axis_mat"  rgba="0 1 0 1"/>
+
+  </asset>
+
+  <worldbody>
+    <!-- Camera placed at (3,3,3) with euler angles for a nice angled view.
+         Adjust as needed. -->
+    <camera name="main_cam" pos="-10 0 50" euler="0 -45 0" />
+
+    <!-- Floor in the x-y plane (normal is +z by MuJoCo default). -->
+    <geom name="floor" type="plane" material="ground_mat"
+          pos="0 0 0" size="5 5 0.1"
+          contype="0" conaffinity="0"/>
+
+    <!-- A small arrow showing -z direction (e.g., gravity) -->
+    <body name="x-axis" pos="0 0 0">
+      <!-- A capsule from (0,0,0) to (0,0,-1) representing the x vector. -->
+      <geom name="x_arrow" type="capsule" fromto="0 0 0 0.5 0 0"
+            size="0.01" material="x_axis_mat" density="0" />
     </body>
+    <body name="y-axis" pos="0 0 0">
+      <!-- A capsule from (0,0,0) to (0,0,-1) representing the y vector. -->
+      <geom name="y_arrow" type="capsule" fromto="0 0 0 0 0.5 0"
+            size="0.01" material="y_axis_mat" density="0" />
+    </body>
+    <body name="z-axis" pos="0 0 0">
+      <!-- A capsule from (0,0,0) to (0,0,-1) representing the gravity vector. -->
+      <geom name="z_arrow" type="capsule" fromto="0 0 0 0 0 0.5"
+            size="0.01" material="z_axis_mat" density="0" />
+    </body>
+
+    <!-- Sphere body at z=2, with a hinge around the x-axis for rod swing in y-z plane -->
+    <body name="sphere_body" pos="0 0 2">
+      <joint name="sphere_joint" type="hinge" axis="0 1 0" />
+      <!-- Massless sphere (density="0") -->
+      <geom name="sphere_geom" type="sphere" size="0.06"
+            material="sphere_mat" density="0" />
+
+      <!-- Rod attached at the sphere center, mass=1, length=1 along y-axis -->
+      <body name="rod_body" pos="0 0 0">
+        <!-- Simple inertia so MuJoCo knows mass=1. -->
+        <inertial pos="0 0 0.5" mass="1" diaginertia="0.001 0.001 0.001" />
+        <geom name="rod_geom" type="capsule" fromto="0 0 0 0 0 1"
+              size="0.05" material="rod_mat" density="0" />
+      </body>
+    </body>
+
   </worldbody>
 
   <actuator>
-    <!-- A motor applying torque in [-2,2] directly to the hinge. -->
-    <motor name="torque" joint="hinge" gear="1"/>
+    <!-- A motor applying torque about the hinge axis:
+         ctrlrange sets torque limits; gear=1 => direct 1:1 torque. -->
+    <motor name="hinge_motor" joint="sphere_joint" ctrlrange="-2 2" gear="1" />
   </actuator>
 </mujoco>
