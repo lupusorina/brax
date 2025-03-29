@@ -160,3 +160,54 @@ class NormalTanhDistribution(ParametricDistribution):
     loc, scale = jnp.split(parameters, 2, axis=-1)
     scale = (jax.nn.softplus(scale) + self._min_std) * self._var_scale
     return NormalDistribution(loc=loc, scale=scale)
+  
+
+class ScaledTanhBijector:
+  """A bijector that maps R -> [-scale, scale] by (scale * tanh)."""
+
+  def __init__(self, scale=2.0):
+    self.scale = scale
+
+  def forward(self, x: jnp.ndarray) -> jnp.ndarray:
+    # Maps any real x to y = scale * tanh(x), in [-scale, scale].
+    return self.scale * jnp.tanh(x)
+
+  def inverse(self, y: jnp.ndarray) -> jnp.ndarray:
+    # Invert y = scale * tanh(x):
+    # => x = arctanh(y / scale)
+    # Clip inside [-1,1] for numerical stability:
+    clipped = jnp.clip(y / self.scale, -0.999999, 0.999999)
+    return 0.5 * jnp.log((1.0 + clipped) / (1.0 - clipped))
+
+  def forward_log_det_jacobian(self, x: jnp.ndarray) -> jnp.ndarray:
+    # derivative wrt x is scale * sech^2(x)
+    # => log|derivative| = log(scale) + log(sech^2(x))
+    # => log(scale) + 2*log(sech(x))
+    # => log(scale) - 2*log(cosh(x))
+    log_scale = jnp.log(self.scale)
+    log_cosh = jnp.log(jnp.cosh(x))
+    return log_scale - 2.0 * log_cosh
+
+  
+class NormalScaledTanhDistribution(ParametricDistribution):
+  """Normal -> Tanh -> scale, for final outputs in [-scale, +scale]."""
+
+  def __init__(self,
+               event_size: int,
+               scale: float = 2.0,
+               min_std: float = 0.001,
+               var_scale: float = 1.0):
+    super().__init__(
+        param_size=2 * event_size,
+        postprocessor=ScaledTanhBijector(scale=scale),
+        event_ndims=1,       # we typically have 1D actions
+        reparametrizable=True,
+    )
+    self._min_std = min_std
+    self._var_scale = var_scale
+
+  def create_dist(self, parameters: jnp.ndarray) -> NormalDistribution:
+    """Split parameters into mean and (softplus) scale, then return Normal."""
+    loc, scale = jnp.split(parameters, 2, axis=-1)
+    scale = (jax.nn.softplus(scale) + self._min_std) * self._var_scale
+    return NormalDistribution(loc=loc, scale=scale)

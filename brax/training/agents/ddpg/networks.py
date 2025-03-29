@@ -38,10 +38,15 @@ def make_ddpg_networks(
     action_size: int,
     preprocess_observations_fn: types.PreprocessObservationFn = types
     .identity_observation_preprocessor,
-    hidden_layer_sizes: Sequence[int] = (256, 256),
+    hidden_layer_sizes: Sequence[int] = (400, 300),
     activation: networks.ActivationFn = linen.relu) -> DDPGNetworks:
 
-  parametric_action_distribution = distribution.NormalTanhDistribution(event_size=action_size)
+  parametric_action_distribution = distribution.NormalScaledTanhDistribution(
+      event_size=action_size,
+      scale=2.0,         # This is the key: now outputs are in [-2,2]
+      min_std=0.001,
+      var_scale=1.0,
+  )#distribution.NormalTanhDistribution(event_size=action_size)
   policy_network = networks.make_policy_network(
       parametric_action_distribution.param_size,
       observation_size,
