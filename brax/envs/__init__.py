@@ -19,6 +19,7 @@ import functools
 from typing import Optional, Type
 
 from brax.envs import ant
+from brax.envs import classic_IP
 from brax.envs import fast
 from brax.envs import half_cheetah
 from brax.envs import hopper
@@ -35,6 +36,7 @@ from brax.envs.wrappers import training
 
 _envs = {
     'ant': ant.Ant,
+    'classic_pendulum': classic_IP.InvertedPendulum,
     'fast': fast.Fast,
     'halfcheetah': half_cheetah.Halfcheetah,
     'hopper': hopper.Hopper,
