@@ -238,6 +238,7 @@ def train(
     policy_params_fn: Callable[..., None] = lambda *args: None,
     # checkpointing
     save_checkpoint_path: Optional[str] = None,
+    save_checkpoint_device: str = 'cpu',
     restore_checkpoint_path: Optional[str] = None,
     restore_params: Optional[Any] = None,
     restore_value_fn: bool = True,
@@ -713,7 +714,7 @@ def train(
           network_factory=network_factory,
       )
       checkpoint.save(
-          save_checkpoint_path, current_step, params, ckpt_config
+          save_checkpoint_path, current_step, params, ckpt_config, save_checkpoint_device
       )
 
     if num_evals > 0:

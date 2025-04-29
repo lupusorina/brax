@@ -22,6 +22,7 @@ from brax.training import types
 from brax.training.agents.ppo import networks as ppo_networks
 from etils import epath
 from ml_collections import config_dict
+import jax
 
 _CONFIG_FNAME = 'ppo_network_config.json'
 
@@ -31,9 +32,14 @@ def save(
     step: int,
     params: Any,
     config: config_dict.ConfigDict,
+    device: str = 'cpu',
 ):
   """Saves a checkpoint."""
-  return checkpoint.save(path, step, params, config, _CONFIG_FNAME)
+  if device == 'cpu':
+    cpu_params = jax.tree_map(lambda x: jax.device_put(x, jax.devices('cpu')[0]), params)
+    return checkpoint.save(path, step, cpu_params, config, _CONFIG_FNAME)
+  else:
+    return checkpoint.save(path, step, params, config, _CONFIG_FNAME)
 
 
 def load(
