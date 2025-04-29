@@ -238,7 +238,7 @@ def train(
     policy_params_fn: Callable[..., None] = lambda *args: None,
     # checkpointing
     save_checkpoint_path: Optional[str] = None,
-    save_checkpoint_device: str = 'cpu',
+    save_checkpoint_device: Optional[str] = None,
     restore_checkpoint_path: Optional[str] = None,
     restore_params: Optional[Any] = None,
     restore_value_fn: bool = True,

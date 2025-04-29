@@ -24,6 +24,8 @@ from etils import epath
 from ml_collections import config_dict
 import jax
 
+from typing import Optional
+
 _CONFIG_FNAME = 'ppo_network_config.json'
 
 
@@ -32,7 +34,7 @@ def save(
     step: int,
     params: Any,
     config: config_dict.ConfigDict,
-    device: str = 'cpu',
+    device: Optional[str] = None,
 ):
   """Saves a checkpoint."""
   if device == 'cpu':
